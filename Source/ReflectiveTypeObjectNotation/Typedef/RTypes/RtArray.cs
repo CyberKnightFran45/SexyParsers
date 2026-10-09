@@ -11,13 +11,25 @@ internal static class RtArray
 
 private const ulong MIN_ARRAY_SIZE = SizeT.ONE_KILOBYTE * 64;
 
+// Resize array buffer when needed
+
+private static void ResizeArrayBuffer(NativeBuffer buffer, ulong pos, ulong requiredSize)
+{
+
+while(pos > buffer.Size || buffer.Size - pos < requiredSize)
+buffer.Realloc(buffer.Size + MIN_ARRAY_SIZE);
+
+}
+
 /** <summary> Reads a RTON Array and writes it to its JSON equivalent </summary>
 
 <param name = "buffer"> The RTON Reader </param>
 <param name = "writer"> The JSON Writer. </param> */
 
-internal static void Read(NativeBuffer buffer, ReferenceStrings strCache,
-                          ref ulong pos, Utf8JsonWriter writer)
+internal static void Read(NativeBuffer buffer,
+                          ReferenceStrings strCache,
+                          ref ulong pos,
+						  Utf8JsonWriter writer)
 {
 byte mArrayStart = buffer.GetUInt8(pos);
 pos++;
@@ -57,17 +69,16 @@ writer.WriteEndArray();
 
 // Encode json array
 
-private static uint EncodeJArray(NativeJsonReader reader, NativeBuffer buffer,
-                                 ReferenceStrings strCache, ref ulong pos)
+private static uint EncodeJArray(NativeJsonReader reader,
+                                 NativeBuffer buffer,
+                                 ReferenceStrings strCache,
+								 ref ulong pos)
 {
 uint count = 0;
 
 while(reader.ReadToken() )
 {
-ulong arraySize = buffer.Size;
-
-if(arraySize - pos < MIN_ARRAY_SIZE)
-buffer.Realloc(arraySize + MIN_ARRAY_SIZE); // Resize array buffer if needed
+ResizeArrayBuffer(buffer, pos, MIN_ARRAY_SIZE); // Ensure room for array buffer
 
 switch(reader.CurrentTokenType)
 {
@@ -89,11 +100,15 @@ throw new JsonException("Unexpected end of JSON before EndArray.");
 /** <summary> Reads a JSON Array and Writes its equivalent as RTON </summary>
 
 <param name = "reader"> The JSON reader. </param>
-<param name = "writer"> The RTON writer. </param> */
+<param name = "buffer"> The RTON buffer. </param> */
 
-internal static void Write(NativeJsonReader reader, NativeBuffer buffer,
-                           ReferenceStrings strCache, ref ulong pos)
+internal static void Write(NativeJsonReader reader,
+                           NativeBuffer buffer,
+                           ReferenceStrings strCache,
+						   ref ulong pos)
 {
+ResizeArrayBuffer(buffer, pos, 2); // Ensure space for type and start marker
+
 buffer.SetUInt8(pos, RTypeId.ARRAY);
 pos++;
 
@@ -104,7 +119,11 @@ using NativeBuffer rawArray = new(MIN_ARRAY_SIZE);
 ulong arrayPos = 0;
 
 uint elementsCount = EncodeJArray(reader, rawArray, strCache, ref arrayPos);
+
+ResizeArrayBuffer(buffer, pos, 5); // Ensure space for counter (VarInt)
 pos += (ulong)buffer.SetVarInt(pos, elementsCount);
+
+ResizeArrayBuffer(buffer, pos, arrayPos + 1); // Ensure space for array content and finalizer
 
 buffer.CopyFrom(rawArray, 0, pos, arrayPos);
 pos += arrayPos;
